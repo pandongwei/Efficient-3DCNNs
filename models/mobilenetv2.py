@@ -74,7 +74,7 @@ class MobileNetV2(nn.Module):
         input_channel = 32
         last_channel = 1280
         interverted_residual_setting = [
-            # t, c, n, s
+            # t, c, n, s (expansion factor,output channels,repeat times,stride)
             [1,  16, 1, (1,1,1)],
             [6,  24, 2, (2,2,2)],
             [6,  32, 3, (2,2,2)],
@@ -104,7 +104,8 @@ class MobileNetV2(nn.Module):
         # building classifier
         self.classifier = nn.Sequential(
             nn.Dropout(0.2),
-            nn.Linear(self.last_channel, num_classes),
+            nn.Linear(self.last_channel, 320),
+            nn.Linear(self.last_channel, num_classes)
         )
 
         self._initialize_weights()
@@ -163,9 +164,11 @@ def get_model(**kwargs):
 
 
 if __name__ == "__main__":
-    model = get_model(num_classes=600, sample_size=112, width_mult=1.)
+    model = get_model(num_classes=4, sample_size=112, width_mult=1.)
     model = model.cuda()
     model = nn.DataParallel(model, device_ids=None)
+    from torchsummary import summary
+    summary(model,input_size=(3,10,224,224))  #(channels,frames,width,height)
     print(model)
 
 
