@@ -1,6 +1,7 @@
 import torch
 import torch.backends.cudnn as cudnn
 from torch import optim
+from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 from torch.utils.data import Dataset,DataLoader
 import os
@@ -8,6 +9,7 @@ from models.mobilenetv2 import *
 import json
 import time
 import copy
+from datetime import datetime
 
 DATA_CLASS_NAMES = {
     0: "bicycle-lane",
@@ -48,8 +50,12 @@ class SequentialDataset(Dataset):
     def __len__(self):
         return len(self.fnames)
 
-def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, is_inception=False):
+def train_model(model, dataloaders, criterion, optimizer, num_epochs):
     since = time.time()
+
+    #use tensorboard
+    log_dir = "logs/fit/" + datetime.now().strftime("%Y%m%d-%H%M%S")
+    writer = SummaryWriter(log_dir = log_dir)
 
     val_acc_history = []
 
@@ -86,15 +92,9 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, is_ince
                     # Special case for inception because in training it has an auxiliary output. In train
                     #   mode we calculate the loss by summing the final output and the auxiliary output
                     #   but in testing we only consider the final output.
-                    if is_inception and phase == 'train':
-                        # From https://discuss.pytorch.org/t/how-to-optimize-inception-model-with-auxiliary-classifiers/7958
-                        outputs, aux_outputs = model(inputs)
-                        loss1 = criterion(outputs, labels)
-                        loss2 = criterion(aux_outputs, labels)
-                        loss = loss1 + 0.4*loss2
-                    else:
-                        outputs = model(inputs)
-                        loss = criterion(outputs, labels)
+
+                    outputs = model(inputs)
+                    loss = criterion(outputs, labels)
 
                     _, preds = torch.max(outputs, 1)
 
@@ -118,7 +118,12 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, is_ince
                 best_model_wts = copy.deepcopy(model.state_dict())
             if phase == 'val':
                 val_acc_history.append(epoch_acc)
-
+        if phase == 'train:':
+            writer.add_scalar('train_acc', epoch_acc, epoch)
+            writer.add_scalar('train_loss', epoch_loss, epoch)
+        else:
+            writer.add_scalar('valid_acc', epoch_acc, epoch)
+            writer.add_scalar('valid_loss', epoch_loss, epoch)
         print()
 
     time_elapsed = time.time() - since
@@ -158,9 +163,12 @@ def main():
     '''
     cudnn.benchmark = True
 
+    image_dir = {'train': train_dir,
+           'val': eval_dir}
+
     dataloaders_dict = {
-        x: torch.utils.data.DataLoader(SequentialDataset(root_path=x,images_len=10), batch_size=batch_size, shuffle=True, num_workers=4) for x in
-        ['train_dir', 'eval_dir']}
+        x: torch.utils.data.DataLoader(SequentialDataset(root_path=image_dir[x],images_len=10), batch_size=batch_size, shuffle=True, num_workers=4) for x in
+        ['train', 'val']}
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Send the model to GPU
@@ -180,9 +188,9 @@ def main():
     criterion = nn.CrossEntropyLoss()
 
     # Train and evaluate
-    model_ft, hist = train_model(model, dataloaders_dict, criterion, optimizer, num_epochs=num_epochs,
-                                 is_inception=(model_name == "inception"))
-
+    model_ft, hist = train_model(model, dataloaders_dict, criterion, optimizer, num_epochs=num_epochs)
+    path = 'models/model_final.pkl'
+    torch.save(model.state_dict(), path)
 
 if __name__ == "__main__":
     main()
