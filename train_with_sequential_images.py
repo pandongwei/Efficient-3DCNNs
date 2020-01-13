@@ -10,6 +10,7 @@ import json
 import time
 import copy
 from datetime import datetime
+import cv2
 
 DATA_CLASS_NAMES = {
     0: "bicycle-lane",
@@ -23,10 +24,14 @@ class SequentialDataset(Dataset):
     generate the sequential image dataset that several images as one input
     '''
 
-    def __init__(self, root_path, images_len=10):
+    def __init__(self, root_path, images_len=10, frame_count = 10, height = 224, width = 224,rescale = None):
         self.root_path = root_path
         self.images_len = images_len
         self.fnames, self.labels = [], []
+        self.frame_count = frame_count
+        self.height = height
+        self.width = width
+        self.rescale = rescale
         part = []
         for label in sorted(os.listdir(root_path)):
             i = 0
@@ -43,8 +48,14 @@ class SequentialDataset(Dataset):
 
 
     def __getitem__(self, index):
-        buffer = self.fnames[index]
+        buffer = np.empty((self.frame_count, self.height, self.width, 3), np.dtype('float32'))
+        for i,frame_name in enumerate(self.fnames[index]):
+            frame = np.array(cv2.imread(frame_name)).astype(np.float64)
+            buffer[i] = frame
         labels = np.array(self.labels[index])
+        if self.rescale is not None:
+            buffer = buffer*self.rescale
+        buffer = np.moveaxis(buffer,-1,0)
         return torch.from_numpy(buffer), torch.from_numpy(labels)
 
     def __len__(self):
@@ -76,7 +87,7 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs):
             running_loss = 0.0
             running_corrects = 0
 
-            device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             # Iterate over data.
             for inputs, labels in dataloaders[phase]:
                 inputs = inputs.to(device)
@@ -112,7 +123,7 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs):
 
             print('{} Loss: {:.4f} Acc: {:.4f}'.format(phase, epoch_loss, epoch_acc))
 
-            # deep copy the model
+            # deep copy the model,这里只保存了最好的模型
             if phase == 'val' and epoch_acc > best_acc:
                 best_acc = epoch_acc
                 best_model_wts = copy.deepcopy(model.state_dict())
@@ -124,6 +135,7 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs):
         else:
             writer.add_scalar('valid_acc', epoch_acc, epoch)
             writer.add_scalar('valid_loss', epoch_loss, epoch)
+        torch.save(model.state_dict(), log_dir+'/final_model.pkl')
         print()
 
     time_elapsed = time.time() - since
@@ -135,7 +147,7 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs):
     return model, val_acc_history
 
 def main():
-    os.environ["CUDA_VISIBLE_DEVICES"] = "2"  ## todo
+    #os.environ["CUDA_VISIBLE_DEVICES"] = "1"  ## todo
 
     with open('config/config.json', 'r') as f:
         cfg = json.load(f)
@@ -149,11 +161,21 @@ def main():
     eval_dir = cfg['eval_dir']
     test_dir = cfg['test_dir']
 
-    model = get_model(num_classes=num_classes, sample_size=shape[0], width_mult=1.)
+    model = get_model(num_classes=num_classes, sample_size=shape[0], width_mult=1.0)
     model = model.cuda()
+    '''
     model_path = r'./logs/fit/1/jester_mobilenetv2_1.0x_RGB_16_best.pth'
     checkpoint = torch.load(model_path)
-    model.load_state_dict(checkpoint['model'])
+    #load part of the weight because of finetune
+    pretrained_dict = checkpoint['state_dict']
+    model_dict = model.state_dict()
+    # 1. filter out unnecessary keys
+    pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
+    # 2. overwrite entries in the existing state dict
+    model_dict.update(pretrained_dict)
+    # 3. load the new state dict
+    model.load_state_dict(pretrained_dict)
+    '''
 
     '''
     root_path = "/home/pan/master-thesis-in-mrt/data-sequential/dataset-train"
@@ -161,15 +183,15 @@ def main():
     val_dataloader = DataLoader(SequentialDataset(root_path=root_path,images_len=10), batch_size=4, num_workers=4)
     test_dataloader = DataLoader(SequentialDataset(root_path=root_path,images_len=10), batch_size=4, num_workers=4)
     '''
-    cudnn.benchmark = True
 
     image_dir = {'train': train_dir,
            'val': eval_dir}
 
     dataloaders_dict = {
-        x: torch.utils.data.DataLoader(SequentialDataset(root_path=image_dir[x],images_len=10), batch_size=batch_size, shuffle=True, num_workers=4) for x in
+        x: DataLoader(SequentialDataset(root_path=image_dir[x],images_len=10,rescale=1/255.), batch_size=batch_size, shuffle=True, num_workers=4) for x in
         ['train', 'val']}
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    cudnn.benchmark = True
 
     # Send the model to GPU
     model = model.to(device)
@@ -188,9 +210,10 @@ def main():
     criterion = nn.CrossEntropyLoss()
 
     # Train and evaluate
-    model_ft, hist = train_model(model, dataloaders_dict, criterion, optimizer, num_epochs=num_epochs)
+    model, hist = train_model(model, dataloaders_dict, criterion, optimizer, num_epochs=num_epochs)
     path = 'models/model_final.pkl'
     torch.save(model.state_dict(), path)
+    print(hist)
 
 if __name__ == "__main__":
     main()

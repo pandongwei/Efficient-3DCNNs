@@ -105,7 +105,7 @@ class MobileNetV2(nn.Module):
         self.classifier = nn.Sequential(
             nn.Dropout(0.2),
             nn.Linear(self.last_channel, 320),
-            nn.Linear(self.last_channel, num_classes)
+            nn.Linear(320, num_classes)
         )
 
         self._initialize_weights()
@@ -164,7 +164,7 @@ def get_model(**kwargs):
 
 
 if __name__ == "__main__":
-    model = get_model(num_classes=4, sample_size=112, width_mult=1.)
+    model = get_model(num_classes=4, sample_size=112, width_mult=1.0)
     model = model.cuda()
     model = nn.DataParallel(model, device_ids=None)
     from torchsummary import summary
