@@ -1,5 +1,6 @@
 import torch
 import torch.backends.cudnn as cudnn
+from torch import optim
 import numpy as np
 from torch.utils.data import Dataset,DataLoader
 import os
@@ -69,6 +70,7 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, is_ince
             running_loss = 0.0
             running_corrects = 0
 
+            device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
             # Iterate over data.
             for inputs, labels in dataloaders[phase]:
                 inputs = inputs.to(device)
@@ -132,35 +134,54 @@ def main():
 
     with open('config/config.json', 'r') as f:
         cfg = json.load(f)
-    batch = int(cfg['batch'])
-    epochs = int(cfg['epochs'])
+    batch_size = int(cfg['batch'])
+    num_epochs = int(cfg['epochs'])
     num_classes = int(cfg['class_number'])
     shape = (int(cfg['height']), int(cfg['width']), 3)
     learning_rate = cfg['learning_rate']
     pre_weights = cfg['weights']
+    train_dir = cfg['train_dir']
+    eval_dir = cfg['eval_dir']
+    test_dir = cfg['test_dir']
 
     model = get_model(num_classes=num_classes, sample_size=shape[0], width_mult=1.)
     model = model.cuda()
     model_path = r'./logs/fit/1/jester_mobilenetv2_1.0x_RGB_16_best.pth'
     checkpoint = torch.load(model_path)
     model.load_state_dict(checkpoint['model'])
-    model.eval()
 
-
+    '''
     root_path = "/home/pan/master-thesis-in-mrt/data-sequential/dataset-train"
     train_dataloader = DataLoader(SequentialDataset(root_path=root_path,images_len=10), batch_size=4,shuffle=True, num_workers=4)
     val_dataloader = DataLoader(SequentialDataset(root_path=root_path,images_len=10), batch_size=4, num_workers=4)
     test_dataloader = DataLoader(SequentialDataset(root_path=root_path,images_len=10), batch_size=4, num_workers=4)
-
-    criterion = nn.CrossEntropyLoss()
-
-    optimizer = torch.optim.SGD(
-        model.parameters(), lr=learning_rate, momentum=0.9, weight_decay=1e-5
-    )
-
-    device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'
+    '''
     cudnn.benchmark = True
 
+    dataloaders_dict = {
+        x: torch.utils.data.DataLoader(SequentialDataset(root_path=x,images_len=10), batch_size=batch_size, shuffle=True, num_workers=4) for x in
+        ['train_dir', 'eval_dir']}
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Send the model to GPU
+    model = model.to(device)
+
+    params_to_update = model.parameters()
+    print("Params to learn:")
+
+    for name, param in model.named_parameters():
+        if param.requires_grad == True:
+            print("\t", name)
+
+    # Observe that all parameters are being optimized
+    optimizer = optim.SGD(params_to_update, lr=learning_rate, momentum=0.9)
+
+    # Setup the loss fxn
+    criterion = nn.CrossEntropyLoss()
+
+    # Train and evaluate
+    model_ft, hist = train_model(model, dataloaders_dict, criterion, optimizer, num_epochs=num_epochs,
+                                 is_inception=(model_name == "inception"))
 
 
 if __name__ == "__main__":
