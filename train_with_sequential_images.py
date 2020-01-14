@@ -1,7 +1,7 @@
 import torch
 import torch.backends.cudnn as cudnn
 from torch import optim
-from torch.utils.tensorboard import SummaryWriter
+from tensorboardX import SummaryWriter
 import numpy as np
 from torch.utils.data import Dataset,DataLoader
 import os
@@ -135,12 +135,12 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs):
                 best_model_wts = copy.deepcopy(model.state_dict())
             if phase == 'val':
                 val_acc_history.append(epoch_acc)
-        if phase == 'train:':
-            writer.add_scalar('train_acc', epoch_acc, epoch)
-            writer.add_scalar('train_loss', epoch_loss, epoch)
-        else:
-            writer.add_scalar('valid_acc', epoch_acc, epoch)
-            writer.add_scalar('valid_loss', epoch_loss, epoch)
+            if phase == 'train:':
+                writer.add_scalar('train_acc', epoch_acc, epoch)
+                writer.add_scalar('train_loss', epoch_loss, epoch)
+            else:
+                writer.add_scalar('valid_acc', epoch_acc, epoch)
+                writer.add_scalar('valid_loss', epoch_loss, epoch)
         torch.save(model.state_dict(), log_dir+'/final_model.pkl')
         print()
 
@@ -170,6 +170,12 @@ def main():
 
     model = get_model(num_classes=num_classes, sample_size=shape[0], width_mult=1.0)
     model = model.cuda()
+
+    #load weights if it has
+    if pre_weights and os.path.exists(pre_weights):
+        weights = torch.load(pre_weights)
+        model.load_state_dict(weights)
+
     '''
     model_path = r'./logs/fit/1/jester_mobilenetv2_1.0x_RGB_16_best.pth'
     checkpoint = torch.load(model_path)
@@ -210,7 +216,8 @@ def main():
             print("\t", name)
 
     # Observe that all parameters are being optimized
-    optimizer = optim.SGD(params_to_update, lr=learning_rate, momentum=0.9)
+    #optimizer = optim.SGD(params_to_update, lr=learning_rate, momentum=0.9)
+    optimizer = optim.Adam(params_to_update,lr=learning_rate)
 
     # Setup the loss fxn
     criterion = nn.CrossEntropyLoss()
@@ -221,14 +228,11 @@ def main():
     torch.save(model.state_dict(), path)
     '''
     #test the result
-    pre_weights = torch.load(pre_weights)
-    model.load_state_dict(pre_weights)
-
     running_loss = 0.0
     running_corrects = 0.0
     test_dataloader = DataLoader(SequentialDataset(root_path= test_dir, images_len=10, rescale=1 / 255.),
                                  batch_size=batch_size, num_workers=4)
-    print(test_dataloader.dataset.labels)
+
     test_size = len(test_dataloader.dataset)
     model.eval()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
