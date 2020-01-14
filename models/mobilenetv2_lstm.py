@@ -92,9 +92,12 @@ class MobileNetV2_LSTM(nn.Module):
         # make it nn.Sequential
         self.features = nn.Sequential(*self.features)
 
-        #add up the lstm
+        #add up the lstm  TODO
+        lstm = nn.LSTM(24*28*28,5,1)  #
         self.lstm = nn.Sequential(
-            nn.LSTM((5,24,28*28))   #TODO
+            nn.LSTM(24*28*28,5,1),
+            nn.Dropout(0.2),
+
         )
 
         # building classifier

@@ -218,8 +218,8 @@ def main():
             print("\t", name)
 
     # Observe that all parameters are being optimized
-    #optimizer = optim.SGD(params_to_update, lr=learning_rate, momentum=0.9)
-    optimizer = optim.Adam(params_to_update,lr=learning_rate)
+    optimizer = optim.SGD(params_to_update, lr=learning_rate, momentum=0.9,weight_decay=5e-4)
+    #optimizer = optim.Adam(params_to_update,lr=learning_rate)
 
     # Setup the loss fxn
     criterion = torch.nn.CrossEntropyLoss()
