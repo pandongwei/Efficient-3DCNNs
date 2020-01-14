@@ -8,5 +8,5 @@
     "train_dir": "/home/pan/master-thesis-in-mrt/data-sequential/dataset-train",
     "eval_dir": "/home/pan/master-thesis-in-mrt/data-sequential/dataset-evaluation",
     "test_dir": "/home/pan/master-thesis-in-mrt/data/dataset-test",
-    "weights": ""
+    "weights": "logs/fit/20200114-120614/final_model.pkl"
 }

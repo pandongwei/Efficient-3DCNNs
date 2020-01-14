@@ -13,10 +13,10 @@ from datetime import datetime
 import cv2
 
 DATA_CLASS_NAMES = {
-    0: "bicycle-lane",
-    1: "bicycle-lane-and-pedestrian",
-    2: "car-lane",
-    3: "pedestrian"
+    "bicycle-lane":0,
+    "bicycle-lane-and-pedestrian":1,
+    "car-lane":2,
+    "pedestrian":3
 }
 
 class SequentialDataset(Dataset):
@@ -40,7 +40,7 @@ class SequentialDataset(Dataset):
                     part.append(os.path.join(root_path, label, fname))
                     i += 1
                 else:
-                    self.labels.append(DATA_CLASS_NAMES.get(label, 0))
+                    self.labels.append(DATA_CLASS_NAMES.get(label))
                     self.fnames.append(part)
                     part = []
                     i = 0
@@ -51,15 +51,21 @@ class SequentialDataset(Dataset):
         buffer = np.empty((self.frame_count, self.height, self.width, 3), np.dtype('float32'))
         for i,frame_name in enumerate(self.fnames[index]):
             frame = np.array(cv2.imread(frame_name)).astype(np.float64)
-            buffer[i] = frame
+            if i < 10:
+                buffer[i] = frame
+            else:
+                break
         labels = np.array(self.labels[index])
         if self.rescale is not None:
             buffer = buffer*self.rescale
-        buffer = np.moveaxis(buffer,-1,0)
+        buffer = self.to_tensor(buffer)
         return torch.from_numpy(buffer), torch.from_numpy(labels)
 
     def __len__(self):
         return len(self.fnames)
+
+    def to_tensor(self, buffer):
+        return buffer.transpose((3, 0, 1, 2))
 
 def train_model(model, dataloaders, criterion, optimizer, num_epochs):
     since = time.time()
@@ -144,10 +150,11 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs):
 
     # load best model weights
     model.load_state_dict(best_model_wts)
+    writer.close()
     return model, val_acc_history
 
 def main():
-    #os.environ["CUDA_VISIBLE_DEVICES"] = "1"  ## todo
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"  ## todo
 
     with open('config/config.json', 'r') as f:
         cfg = json.load(f)
@@ -178,15 +185,14 @@ def main():
     '''
 
     '''
-    root_path = "/home/pan/master-thesis-in-mrt/data-sequential/dataset-train"
-    train_dataloader = DataLoader(SequentialDataset(root_path=root_path,images_len=10), batch_size=4,shuffle=True, num_workers=4)
-    val_dataloader = DataLoader(SequentialDataset(root_path=root_path,images_len=10), batch_size=4, num_workers=4)
-    test_dataloader = DataLoader(SequentialDataset(root_path=root_path,images_len=10), batch_size=4, num_workers=4)
+    train_dataloader = DataLoader(SequentialDataset(root_path=train_dir,images_len=10,rescale=1/255.), batch_size=batch_size,shuffle=True, num_workers=4)
+    val_dataloader = DataLoader(SequentialDataset(root_path=eval_dir,images_len=10,rescale=1/255.), batch_size=batch_size, num_workers=4)
+    trainval_loaders = {'train': train_dataloader, 'val': val_dataloader}
+    trainval_sizes = {x: len(trainval_loaders[x].dataset) for x in ['train', 'val']}
+    test_size = len(test_dataloader.dataset)
     '''
-
     image_dir = {'train': train_dir,
            'val': eval_dir}
-
     dataloaders_dict = {
         x: DataLoader(SequentialDataset(root_path=image_dir[x],images_len=10,rescale=1/255.), batch_size=batch_size, shuffle=True, num_workers=4) for x in
         ['train', 'val']}
@@ -213,7 +219,34 @@ def main():
     model, hist = train_model(model, dataloaders_dict, criterion, optimizer, num_epochs=num_epochs)
     path = 'models/model_final.pkl'
     torch.save(model.state_dict(), path)
-    print(hist)
+    '''
+    #test the result
+    pre_weights = torch.load(pre_weights)
+    model.load_state_dict(pre_weights)
+
+    running_loss = 0.0
+    running_corrects = 0.0
+    test_dataloader = DataLoader(SequentialDataset(root_path= test_dir, images_len=10, rescale=1 / 255.),
+                                 batch_size=batch_size, num_workers=4)
+    print(test_dataloader.dataset.labels)
+    test_size = len(test_dataloader.dataset)
+    model.eval()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    for inputs, labels in test_dataloader:
+        inputs = inputs.to(device)
+        labels = labels.to(device)
+
+        with torch.no_grad():
+            outputs = model(inputs)
+        probs = nn.Softmax(dim=1)(outputs)
+        preds = torch.max(probs, 1)[1]
+        running_corrects += torch.sum(preds == labels.data)
+
+    print(test_size)
+    print(running_corrects)
+    epoch_acc = running_corrects / test_size
+    print(epoch_acc)
+    '''
 
 if __name__ == "__main__":
     main()
