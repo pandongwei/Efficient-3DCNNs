@@ -5,7 +5,7 @@ from tensorboardX import SummaryWriter
 import numpy as np
 from torch.utils.data import Dataset,DataLoader
 import os
-from models.mobilenetv2 import *
+from models import mobilenetv2
 import json
 import time
 import copy
@@ -167,8 +167,10 @@ def main():
     train_dir = cfg['train_dir']
     eval_dir = cfg['eval_dir']
     test_dir = cfg['test_dir']
-
-    model = get_model(num_classes=num_classes, sample_size=shape[0], width_mult=1.0)
+    model = cfg['model']
+    #选择模型 (3D-MobileNetV2,3D-MobileNetV2+LSTM)
+    if model == '3D-MobileNetV2':
+        model = mobilenetv2.get_model(num_classes=num_classes, sample_size=shape[0], width_mult=1.0)
     model = model.cuda()
 
     #load weights if it has
@@ -220,7 +222,7 @@ def main():
     optimizer = optim.Adam(params_to_update,lr=learning_rate)
 
     # Setup the loss fxn
-    criterion = nn.CrossEntropyLoss()
+    criterion = torch.nn.CrossEntropyLoss()
 
     # Train and evaluate
     model, hist = train_model(model, dataloaders_dict, criterion, optimizer, num_epochs=num_epochs)

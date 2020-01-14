@@ -1,4 +1,5 @@
 {
+    "model": "3D-MobileNetV2",
     "height": 224,
     "width": 224,
     "class_number": 4,
