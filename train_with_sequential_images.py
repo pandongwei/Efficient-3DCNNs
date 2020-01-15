@@ -198,7 +198,7 @@ def main():
     trainval_loaders = {'train': train_dataloader, 'val': val_dataloader}
     trainval_sizes = {x: len(trainval_loaders[x].dataset) for x in ['train', 'val']}
     test_size = len(test_dataloader.dataset)
-    '''
+    
     image_dir = {'train': train_dir,
            'val': eval_dir}
     dataloaders_dict = {
@@ -244,7 +244,7 @@ def main():
 
         with torch.no_grad():
             outputs = model(inputs)
-        probs = nn.Softmax(dim=1)(outputs)
+        probs = torch.nn.Softmax(dim=1)(outputs)
         preds = torch.max(probs, 1)[1]
         running_corrects += torch.sum(preds == labels.data)
 
@@ -252,7 +252,7 @@ def main():
     print(running_corrects)
     epoch_acc = running_corrects / test_size
     print(epoch_acc)
-    '''
+
 
 if __name__ == "__main__":
     main()
