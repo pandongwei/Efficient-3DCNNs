@@ -1,16 +1,14 @@
-
 import torch
 import math
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-
-
+import os
 
 
 def conv_bn(inp, oup, stride):
     return nn.Sequential(
-        nn.Conv3d(inp, oup, kernel_size=3, stride=stride, padding=(1,1,1), bias=False),
+        nn.Conv3d(inp, oup, kernel_size=3, stride=stride, padding=(1, 1, 1), bias=False),
         nn.BatchNorm3d(oup),
         nn.ReLU6(inplace=True)
     )
@@ -30,7 +28,7 @@ class InvertedResidual(nn.Module):
         self.stride = stride
 
         hidden_dim = round(inp * expand_ratio)
-        self.use_res_connect = self.stride == (1,1,1) and inp == oup
+        self.use_res_connect = self.stride == (1, 1, 1) and inp == oup
 
         if expand_ratio == 1:
             self.conv = nn.Sequential(
@@ -69,51 +67,67 @@ class MobileNetV2_LSTM(nn.Module):
         super(MobileNetV2_LSTM, self).__init__()
         block = InvertedResidual
         input_channel = 32
-        last_channel = 1280
+        last_channel = 512  #1280
         interverted_residual_setting = [
             # t, c, n, s (expansion factor,output channels,repeat times,stride)
-            [1,  16, 1, (1,1,1)],
-            [6,  24, 2, (2,2,2)]
+            [1, 16, 1, (1, 1, 1)],
+            [6, 24, 2, (2, 2, 2)],
+            [6, 32, 3, (2, 2, 2)],
+            [6, 64, 4, (2, 2, 2)],
+            [6, 96, 3, (1, 1, 1)],
+            [6, 160, 3, (1, 1, 1)],
+            [6, 320, 1, (1, 1, 1)],
         ]
 
         # building first layer
         assert sample_size % 16 == 0.
         input_channel = int(input_channel * width_mult)
         self.last_channel = int(last_channel * width_mult) if width_mult > 1.0 else last_channel
-        self.features = [conv_bn(3, input_channel, (1,2,2))]
+        self.features = [conv_bn(3, input_channel, (1, 2, 2))]
         # building inverted residual blocks
         for t, c, n, s in interverted_residual_setting:
             output_channel = int(c * width_mult)
             for i in range(n):
-                stride = s if i == 0 else (1,1,1)
+                stride = s if i == 0 else (1, 1, 1)
                 self.features.append(block(input_channel, output_channel, stride, expand_ratio=t))
                 input_channel = output_channel
+
+        # building last several layers
+        self.features.append(conv_1x1x1_bn(input_channel, self.last_channel))
 
         # make it nn.Sequential
         self.features = nn.Sequential(*self.features)
 
-        #add up the lstm  TODO
-        lstm = nn.LSTM(24*28*28,5,1)  #
-        self.lstm = nn.Sequential(
-            nn.LSTM(24*28*28,5,1),
-            nn.Dropout(0.2),
-
-        )
+        # add up the lstm  TODO
+        self.rnn = nn.LSTM(input_size=512,
+                           hidden_size=256,
+                           num_layers=1,
+                           dropout=0,
+                           batch_first=True)
+        self.rnn_drop_out = nn.Dropout(0.2)
 
         # building classifier
         self.classifier = nn.Sequential(
-            nn.Dropout(0.2),
-            nn.Linear(self.last_channel, 320),
-            nn.Linear(320, num_classes)
+            nn.Linear(1280, 256),
+            nn.Linear(256, num_classes)
         )
 
         self._initialize_weights()
 
     def forward(self, x):
         x = self.features(x)
-        x = F.avg_pool3d(x, x.data.size()[-3:])
-        x = x.view(x.size(0), -1)
+        #print(x.shape)
+        x = F.avg_pool3d(x, (1, x.data.size()[-2], x.data.size()[-1]))
+        #print(x.shape)
+        x = x.view(x.size(0), x.size(2), -1)
+        #print('before lstm',x.shape)
+        x, hc = self.rnn(x)
+        x = self.rnn_drop_out(x)
+        #print('after lstm',x.shape)
+        x = x.reshape(x.size(0),x.size(1)*x.size(2))
+        #print('after view', x.shape)
         x = self.classifier(x)
+        #print(x.shape)
         return x
 
     def _initialize_weights(self):
@@ -153,7 +167,7 @@ def get_fine_tuning_parameters(model, ft_portion):
     else:
         raise ValueError("Unsupported ft_portion: 'complete' or 'last_layer' expected")
 
-    
+
 def get_model(**kwargs):
     """
     Returns the model.
@@ -163,16 +177,12 @@ def get_model(**kwargs):
 
 
 if __name__ == "__main__":
-    model = get_model(num_classes=4, sample_size=112, width_mult=1.0)
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+    model = get_model(num_classes=4, sample_size=224, width_mult=1.0)
     model = model.cuda()
     model = nn.DataParallel(model, device_ids=None)
     from torchsummary import summary
-    summary(model,input_size=(3,10,224,224))  #(channels,frames,width,height)
-    print(model)
 
-
-    input_var = Variable(torch.randn(8, 3, 16, 112, 112))
-    output = model(input_var)
-    print(output.shape)
+    summary(model, input_size=(3, 40, 224, 224))  # (channels,frames,width,height)
 
 

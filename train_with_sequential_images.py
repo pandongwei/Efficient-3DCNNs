@@ -5,7 +5,7 @@ from tensorboardX import SummaryWriter
 import numpy as np
 from torch.utils.data import Dataset,DataLoader
 import os
-from models import mobilenetv2
+from models import mobilenetv2,mobilenetv2_lstm
 import json
 import time
 import copy
@@ -24,11 +24,10 @@ class SequentialDataset(Dataset):
     generate the sequential image dataset that several images as one input
     '''
 
-    def __init__(self, root_path, images_len=10, frame_count = 10, height = 224, width = 224,rescale = None):
+    def __init__(self, root_path, images_len=10,  height = 224, width = 224,rescale = None):
         self.root_path = root_path
         self.images_len = images_len
         self.fnames, self.labels = [], []
-        self.frame_count = frame_count
         self.height = height
         self.width = width
         self.rescale = rescale
@@ -36,7 +35,7 @@ class SequentialDataset(Dataset):
         for label in sorted(os.listdir(root_path)):
             i = 0
             for fname in sorted(os.listdir(os.path.join(root_path, label))):
-                if i < 10:
+                if i < self.images_len:
                     part.append(os.path.join(root_path, label, fname))
                     i += 1
                 else:
@@ -48,10 +47,10 @@ class SequentialDataset(Dataset):
 
 
     def __getitem__(self, index):
-        buffer = np.empty((self.frame_count, self.height, self.width, 3), np.dtype('float32'))
+        buffer = np.empty((self.images_len, self.height, self.width, 3), np.dtype('float32'))
         for i,frame_name in enumerate(self.fnames[index]):
             frame = np.array(cv2.imread(frame_name)).astype(np.float64)
-            if i < 10:
+            if i < self.images_len:
                 buffer[i] = frame
             else:
                 break
@@ -67,11 +66,10 @@ class SequentialDataset(Dataset):
     def to_tensor(self, buffer):
         return buffer.transpose((3, 0, 1, 2))
 
-def train_model(model, dataloaders, criterion, optimizer, num_epochs):
+def train_model(log_dir, model, dataloaders, criterion, optimizer, num_epochs):
     since = time.time()
 
     #use tensorboard
-    log_dir = "logs/fit/" + datetime.now().strftime("%Y%m%d-%H%M%S")
     writer = SummaryWriter(log_dir = log_dir)
 
     val_acc_history = []
@@ -138,10 +136,10 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs):
             if phase == 'train:':
                 writer.add_scalar('train_acc', epoch_acc, epoch)
                 writer.add_scalar('train_loss', epoch_loss, epoch)
-            else:
-                writer.add_scalar('valid_acc', epoch_acc, epoch)
-                writer.add_scalar('valid_loss', epoch_loss, epoch)
-        torch.save(model.state_dict(), log_dir+'/final_model.pkl')
+        #phase == eval
+        writer.add_scalar('valid_acc', epoch_acc, epoch)
+        writer.add_scalar('valid_loss', epoch_loss, epoch)
+        torch.save(model.state_dict(), log_dir+'/checkpoint.pkl')
         print()
 
     time_elapsed = time.time() - since
@@ -171,6 +169,8 @@ def main():
     #选择模型 (3D-MobileNetV2,3D-MobileNetV2+LSTM)
     if model == '3D-MobileNetV2':
         model = mobilenetv2.get_model(num_classes=num_classes, sample_size=shape[0], width_mult=1.0)
+    if model == '3D-MobileNetV2-LSTM':
+        model = mobilenetv2_lstm.get_model(num_classes=num_classes, sample_size=shape[0], width_mult=1.0)
     model = model.cuda()
 
     #load weights if it has
@@ -198,11 +198,11 @@ def main():
     trainval_loaders = {'train': train_dataloader, 'val': val_dataloader}
     trainval_sizes = {x: len(trainval_loaders[x].dataset) for x in ['train', 'val']}
     test_size = len(test_dataloader.dataset)
-    
+    '''
     image_dir = {'train': train_dir,
            'val': eval_dir}
     dataloaders_dict = {
-        x: DataLoader(SequentialDataset(root_path=image_dir[x],images_len=10,rescale=1/255.), batch_size=batch_size, shuffle=True, num_workers=4) for x in
+        x: DataLoader(SequentialDataset(root_path=image_dir[x],images_len=40,rescale=1/255.), batch_size=batch_size, shuffle=True, num_workers=4) for x in
         ['train', 'val']}
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     cudnn.benchmark = True
@@ -211,22 +211,23 @@ def main():
     model = model.to(device)
 
     params_to_update = model.parameters()
-    print("Params to learn:")
 
-    for name, param in model.named_parameters():
-        if param.requires_grad == True:
-            print("\t", name)
+    #print("Params to learn:")
+    #for name, param in model.named_parameters():
+    #    if param.requires_grad == True:
+    #        print("\t", name)
 
     # Observe that all parameters are being optimized
-    optimizer = optim.SGD(params_to_update, lr=learning_rate, momentum=0.9,weight_decay=5e-4)
-    #optimizer = optim.Adam(params_to_update,lr=learning_rate)
+    #optimizer = optim.SGD(params_to_update, lr=learning_rate, momentum=0.9,weight_decay=5e-4)
+    optimizer = optim.Adam(params_to_update,lr=learning_rate)
 
     # Setup the loss fxn
     criterion = torch.nn.CrossEntropyLoss()
 
     # Train and evaluate
-    model, hist = train_model(model, dataloaders_dict, criterion, optimizer, num_epochs=num_epochs)
-    path = 'models/model_final.pkl'
+    log_dir = "logs/fit/" + datetime.now().strftime("%Y%m%d-%H%M%S")
+    model, hist = train_model(log_dir, model, dataloaders_dict, criterion, optimizer, num_epochs=num_epochs)
+    path = log_dir + '/model_final.pkl'
     torch.save(model.state_dict(), path)
     '''
     #test the result
@@ -252,7 +253,7 @@ def main():
     print(running_corrects)
     epoch_acc = running_corrects / test_size
     print(epoch_acc)
-
+    '''
 
 if __name__ == "__main__":
     main()
