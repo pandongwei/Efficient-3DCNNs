@@ -152,7 +152,7 @@ def train_model(log_dir, model, dataloaders, criterion, optimizer, num_epochs):
     return model, val_acc_history
 
 def main():
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1"  ## todo
+    os.environ["CUDA_VISIBLE_DEVICES"] = "3"  ## todo
 
     with open('config/config.json', 'r') as f:
         cfg = json.load(f)
@@ -198,7 +198,7 @@ def main():
     trainval_loaders = {'train': train_dataloader, 'val': val_dataloader}
     trainval_sizes = {x: len(trainval_loaders[x].dataset) for x in ['train', 'val']}
     test_size = len(test_dataloader.dataset)
-    '''
+    
     image_dir = {'train': train_dir,
            'val': eval_dir}
     dataloaders_dict = {
@@ -233,7 +233,7 @@ def main():
     #test the result
     running_loss = 0.0
     running_corrects = 0.0
-    test_dataloader = DataLoader(SequentialDataset(root_path= test_dir, images_len=10, rescale=1 / 255.),
+    test_dataloader = DataLoader(SequentialDataset(root_path= test_dir, images_len=40, rescale=1 / 255.),
                                  batch_size=batch_size, num_workers=4)
 
     test_size = len(test_dataloader.dataset)
@@ -253,7 +253,7 @@ def main():
     print(running_corrects)
     epoch_acc = running_corrects / test_size
     print(epoch_acc)
-    '''
+
 
 if __name__ == "__main__":
     main()
